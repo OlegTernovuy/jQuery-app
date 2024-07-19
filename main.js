@@ -1,88 +1,82 @@
 
 $(function () {
+        const { fromEvent, interval } = rxjs;
+        const { map, mergeMap, switchMap, takeUntil, filter, mapTo } = rxjs.operators;
 
-        let width = 128;
-        let animationSpeed = 1000;
-        let pause = 3000;
+        const BASE_URL = 'https://64f6f6249d7754084952ddc5.mockapi.io/pets';
+        const width = 128;
+        const animationSpeed = 1000;
+        const pause = 3000;
         let currentSlide = 1;
 
-        let $slideContainer = $('#slideContainer');
-        let $name = $('#name');
-        let $age = $('#age');
-        let $price = $('#price');
-        let $photo = $('#photo');
+        const $slideContainer = $('#slideContainer');
+        const $name = $('#name');
+        const $age = $('#age');
+        const $price = $('#price');
+        const $photo = $('#photo');
 
         let petsLength;
-        let interval;
-
-        function startSlider() {
-                interval = setInterval(function () {
-                        $slideContainer.animate({ 'margin-left': '-=' + width }, animationSpeed, function () {
-                                if (++currentSlide === petsLength - 5) {
-                                        currentSlide = 1;
-                                        $slideContainer.css('margin-left', 0);
-                                }
-                        });
-                }, pause);
-        }
-        function pauseSlider() {
-                clearInterval(interval);
-        }
-
-        $slideContainer
-                .on('mouseenter', pauseSlider)
-                .on('mouseleave', startSlider);
-
-        startSlider();
 
         function addPet(pet) {
-                $slideContainer.append(`<li class="pet w-[8rem] h-52 float-left bg-sky-300"> 
-                                <img src="${pet.photo}" alt="pet" class="h-32 w-full">
-                                <h4 class="text-center">${pet.Breed}</h4>
-                                <span>${pet.Price}</span><span>${pet.Age}</span>
-                                <button data-id="${pet.id}" id="remove-btn" class="text-rose-600" >Delete</button>
-                                </li>`)
+                $slideContainer.append(`
+                <li class="pet w-[8rem] h-52 float-left bg-sky-300"> 
+                    <img src="${pet.photo}" alt="pet" class="h-32 w-full">
+                    <h4 class="text-center">${pet.Breed}</h4>
+                    <span>${pet.Price}</span><span>${pet.Age}</span>
+                    <button data-id="${pet.id}" id="remove-btn" class="text-rose-600">Delete</button>
+                </li>
+            `);
         }
 
-        $.ajax({
-                type: 'GET',
-                url: 'https://64f6f6249d7754084952ddc5.mockapi.io/pets',
-                success: function (pets) {
-                        $.each(pets, function (i, pet) {
-                                petsLength = pets.length
-                                addPet(pet)
-                        })
-                }
-        })
+        window.rxjs.ajax.ajax(BASE_URL).subscribe(pets => {
+                petsLength = pets.response.length;
+                pets.response.forEach(addPet);
+        });
 
-        $('#add-pet').on('click', function () {
-                let newPet = {
+        const startSlider$ = interval(pause).pipe(
+                takeUntil(fromEvent($slideContainer, 'mouseenter'))
+        );
+
+        const stopSlider$ = fromEvent($slideContainer, 'mouseleave').pipe(
+                switchMap(() => startSlider$)
+        );
+
+        startSlider$.subscribe(() => {
+                $slideContainer.animate({ 'margin-left': `-=${width}` }, animationSpeed, function () {
+                        if (++currentSlide === petsLength - 5) {
+                                currentSlide = 1;
+                                $slideContainer.css('margin-left', 0);
+                        }
+                });
+        });
+
+        stopSlider$.subscribe();
+
+        fromEvent($('#add-pet'), 'click').pipe(
+                map(() => ({
                         Breed: $name.val(),
                         Age: $age.val(),
                         Price: $price.val(),
                         photo: $photo.val()
-                }
-                $.ajax({
-                        type: 'POST',
-                        url: 'https://64f6f6249d7754084952ddc5.mockapi.io/pets',
-                        data: newPet,
-                        success: function (newPet) {
-                                petsLength += 1
-                                addPet(newPet)
-                        }
-                })
-        })
+                })),
+                mergeMap(newPet => window.rxjs.ajax.ajax.post(BASE_URL, newPet, { 'Content-Type': 'application/json' }))
+        ).subscribe(response => {
+                petsLength += 1;
+                addPet(response.response);
+        });
 
-        $slideContainer.delegate('#remove-btn', 'click', function () {
-                let $li = $(this).closest('li');
-                $.ajax({
-                        type: 'DELETE',
-                        url: 'https://64f6f6249d7754084952ddc5.mockapi.io/pets/' + $(this).attr('data-id'),
-                        success: function () {
-                                $li.fadeOut(300, function () {
-                                        $(this).remove();
-                                })
-                        }
+        fromEvent($slideContainer, 'click').pipe(
+                map(event => $(event.target)),
+                filter($target => $target.is('#remove-btn')),
+                mergeMap($target => {
+                        const $li = $target.closest('li');
+                        return window.rxjs.ajax.ajax.delete(`${BASE_URL}/${$target.data('id')}`).pipe(
+                                mapTo($li)
+                        );
                 })
-        })
+        ).subscribe($li => {
+                $li.fadeOut(300, function () {
+                        $(this).remove();
+                });
+        });
 })
